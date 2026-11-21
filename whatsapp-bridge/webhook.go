@@ -77,7 +77,10 @@ type WebhookPayload struct {
 // separate from sendWebhookPayload so media callers can avoid their webhook-only
 // file work when delivery is disabled.
 func webhooksEnabled() bool {
-	return getEnvBool("WEBHOOK_ENABLED", true)
+	// Secure fork: webhooks are opt-in. Forwarding every incoming message
+	// (and media as base64) to another process is a data-exfiltration path,
+	// so it must be enabled explicitly with WEBHOOK_ENABLED=true.
+	return getEnvBool("WEBHOOK_ENABLED", false)
 }
 
 // sendWebhookPayload marshals and POSTs a WebhookPayload to the configured webhook URL.

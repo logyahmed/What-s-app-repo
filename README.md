@@ -1,3 +1,5 @@
+> 🔒 **Secure fork** of verygoodplugins/whatsapp-mcp — see [SECURITY-FORK.md](SECURITY-FORK.md) for the added protections.
+
 # WhatsApp MCP Server
 
 [![CI](https://github.com/verygoodplugins/whatsapp-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/verygoodplugins/whatsapp-mcp/actions/workflows/ci.yml)
@@ -1125,6 +1127,8 @@ Windows requires CGO for go-sqlite3. Install [MSYS2](https://www.msys2.org/) and
 go env -w CGO_ENABLED=1
 go run .
 ```
+
+> **Secure fork:** this repository adds a bridge-enforced recipient allow-list, read-only mode, send rate limit, outbound audit log and opt-in webhooks. See [SECURITY-FORK.md](SECURITY-FORK.md).
 
 ## Security Notice
 

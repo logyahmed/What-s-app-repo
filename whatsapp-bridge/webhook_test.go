@@ -17,7 +17,9 @@ import (
 // that exercise webhook delivery. Individual tests set WEBHOOK_ENABLED when
 // they need to cover an enabled or disabled value.
 func TestMain(m *testing.M) {
-	_ = os.Unsetenv("WEBHOOK_ENABLED")
+	// Secure fork: webhooks are opt-in, so delivery tests run with them
+	// explicitly enabled. TestSendWebhookDisabledByDefault covers the default.
+	_ = os.Setenv("WEBHOOK_ENABLED", "true")
 	os.Exit(m.Run())
 }
 
@@ -78,9 +80,9 @@ func TestSendWebhookDisabledByEnv(t *testing.T) {
 	}
 }
 
-// TestSendWebhookEnabledByDefault guards the default: omitting WEBHOOK_ENABLED
-// must leave delivery behavior exactly as it was before the flag existed.
-func TestSendWebhookEnabledByDefault(t *testing.T) {
+// TestSendWebhookDisabledByDefault guards the secure-fork default: omitting
+// WEBHOOK_ENABLED must NOT forward messages anywhere.
+func TestSendWebhookDisabledByDefault(t *testing.T) {
 	unsetWebhookEnabled(t)
 	var received bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -93,14 +95,11 @@ func TestSendWebhookEnabledByDefault(t *testing.T) {
 
 	SendWebhook("123@s.whatsapp.net", "hi", "123@s.whatsapp.net", false, "", "", "", nil, nil)
 
-	if !received {
-		t.Fatal("webhook was not delivered with WEBHOOK_ENABLED unset")
+	if received {
+		t.Fatal("webhook was delivered with WEBHOOK_ENABLED unset; webhooks must be opt-in")
 	}
 }
 
-// TestSendWebhookWithMessageIDSerializesID verifies text-only inbound messages
-// preserve their WhatsApp message ID so downstream webhook idempotency can
-// discard duplicate WhatsApp event deliveries.
 func TestSendWebhookWithMessageIDSerializesID(t *testing.T) {
 	var payload WebhookPayload
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -2511,6 +2511,11 @@ func newRESTMux(client *whatsmeow.Client, messageStore *MessageStore, port int, 
 		connections[0].register(mux, auth)
 	}
 
+	// Outbound policy (read-only / recipient allow-list / rate limit / audit).
+	// Enforced here, below the model, so prompt injection cannot bypass it.
+	policy := loadOutboundPolicy()
+	fmt.Printf("Outbound policy: %s\n", policy.describe())
+
 	// On-demand history sync endpoint (see history_ondemand.go)
 	registerHistoryEndpoint(mux, auth, client, messageStore)
 
@@ -2562,6 +2567,13 @@ func newRESTMux(client *whatsmeow.Client, messageStore *MessageStore, port int, 
 
 		if req.Message == "" && req.MediaPath == "" {
 			http.Error(w, "Message or media path is required", http.StatusBadRequest)
+			return
+		}
+
+		decision := policy.check(client, "/api/send", req.Recipient, true)
+		policy.auditOutbound("/api/send", req.Recipient, decision, len(req.Message), req.MediaPath != "")
+		if !decision.Allowed {
+			rejectOutbound(w, decision)
 			return
 		}
 
@@ -2635,6 +2647,13 @@ func newRESTMux(client *whatsmeow.Client, messageStore *MessageStore, port int, 
 		chatJID, err := types.ParseJID(req.ChatJID)
 		if err != nil || chatJID.User == "" || chatJID.Server == "" {
 			http.Error(w, "Invalid chat_jid", http.StatusBadRequest)
+			return
+		}
+
+		// Read receipts reveal nothing new to the contact, so only read-only
+		// mode blocks them (no allow-list / rate-limit check).
+		if policy.readOnly {
+			rejectOutbound(w, outboundDecision{false, http.StatusForbidden, "bridge is in read-only mode (" + readOnlyEnv + "=true)"})
 			return
 		}
 
@@ -2730,6 +2749,12 @@ func newRESTMux(client *whatsmeow.Client, messageStore *MessageStore, port int, 
 		chatJID, err := types.ParseJID(req.Recipient)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Invalid recipient JID: %v", err), http.StatusBadRequest)
+			return
+		}
+		reactDecision := policy.check(client, "/api/react", req.Recipient, true)
+		policy.auditOutbound("/api/react", req.Recipient, reactDecision, 0, false)
+		if !reactDecision.Allowed {
+			rejectOutbound(w, reactDecision)
 			return
 		}
 		var senderJID types.JID
@@ -2852,6 +2877,12 @@ func newRESTMux(client *whatsmeow.Client, messageStore *MessageStore, port int, 
 		// Validate request
 		if req.Recipient == "" {
 			http.Error(w, "Recipient is required", http.StatusBadRequest)
+			return
+		}
+
+		// Typing indicators respect read-only + allow-list but not the rate limit.
+		if decision := policy.check(client, "/api/typing", req.Recipient, false); !decision.Allowed {
+			rejectOutbound(w, decision)
 			return
 		}
 
