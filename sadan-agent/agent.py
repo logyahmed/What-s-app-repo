@@ -554,7 +554,8 @@ class Agent:
                     self.state.upsert(chat, cold_alerted=1)
                     self.state.event(chat, "cold")
                     self.notify_owner(
-                        f"🧊 *عميل سكت* بعد {self.cfg.max_followups} متابعات\nالعميل: {self.label(chat)}\nالملخص: {c['summary'] or '-'}\nممكن تكلمه بنفسك."
+                        f"🧊 *عميل سكت* بعد {self.cfg.max_followups} متابعات\n"
+                        f"العميل: {self.label(chat)}\nالملخص: {c['summary'] or '-'}\nممكن تكلمه بنفسك."
                     )
         # 3) Daily summary + nightly style refresh.
         local = self.now_local()
