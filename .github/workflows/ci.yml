@@ -67,6 +67,10 @@ jobs:
         run: |
           cd whatsapp-bridge
           go build -v ./...
+      - name: Test
+        run: |
+          cd whatsapp-bridge
+          go test ./...
 
   python-test:
     name: Python Tests
@@ -77,8 +81,9 @@ jobs:
       - name: Install dependencies
         run: |
           cd whatsapp-mcp-server
-          uv venv
-          uv pip install -e ".[dev]"
+          # Install from uv.lock so CI uses the same pinned versions as users
+          # (a fresh resolve pulled mcp 2.x, which removed FastMCP).
+          uv sync --locked --extra dev
       - name: Run tests
         run: |
           cd whatsapp-mcp-server
