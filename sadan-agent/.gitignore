@@ -1,0 +1,4 @@
+config.json
+agent_state.db*
+style_examples.json
+__pycache__/

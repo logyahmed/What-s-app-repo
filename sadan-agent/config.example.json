@@ -1,0 +1,19 @@
+{
+  "_comment": "انسخ الملف ده باسم config.json وعدّل القيم. الأرقام بالصيغة الدولية من غير +",
+  "owner_number": "966597532622",
+  "owner_aliases": [],
+  "model": "qwen2.5:7b",
+  "ollama_url": "http://127.0.0.1:11434",
+  "bridge_url": "http://127.0.0.1:8080/api",
+  "bridge_token_file": "../whatsapp-bridge/store/.bridge-token",
+  "messages_db": "../whatsapp-bridge/store/messages.db",
+  "listen_port": 8769,
+  "auto_reply": true,
+  "reply_delay_seconds": 20,
+  "unanswered_alert_minutes": 15,
+  "followup_after_hours": 24,
+  "max_followups": 2,
+  "active_hours": [9, 22],
+  "daily_summary_hour": 21,
+  "human_takeover_hours": 12
+}

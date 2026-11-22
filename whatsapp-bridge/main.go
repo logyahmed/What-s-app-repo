@@ -2514,6 +2514,7 @@ func newRESTMux(client *whatsmeow.Client, messageStore *MessageStore, port int, 
 	// Outbound policy (read-only / recipient allow-list / rate limit / audit).
 	// Enforced here, below the model, so prompt injection cannot bypass it.
 	policy := loadOutboundPolicy()
+	policy.lastInbound = lastInboundFromStore(messageStore)
 	fmt.Printf("Outbound policy: %s\n", policy.describe())
 
 	// On-demand history sync endpoint (see history_ondemand.go)

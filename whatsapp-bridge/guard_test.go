@@ -135,3 +135,58 @@ func TestLoadOutboundPolicyDefaults(t *testing.T) {
 		t.Fatal("invalid rate limit must fall back to the default")
 	}
 }
+
+func TestReplyWindowAllowsRecentInboundOnly(t *testing.T) {
+	ms := newTestMessageStore(t)
+	now := time.Now()
+	for _, row := range []struct {
+		chat   string
+		ts     time.Time
+		fromMe bool
+	}{
+		{"966500000001@s.whatsapp.net", now.Add(-2 * time.Hour), false},       // recent customer
+		{"966500000002@s.whatsapp.net", now.Add(-30 * 24 * time.Hour), false}, // old customer
+		{"966500000003@s.whatsapp.net", now.Add(-1 * time.Hour), true},        // only we wrote
+		{"55554444@lid", now.Add(-1 * time.Hour), false},                      // LID chat
+	} {
+		if _, err := ms.db.Exec(`INSERT INTO chats (jid) VALUES (?)`, row.chat); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := ms.db.Exec(`INSERT INTO messages (id, chat_jid, sender, content, timestamp, is_from_me) VALUES (?, ?, ?, 'x', ?, ?)`,
+			"m-"+row.chat, row.chat, row.chat, row.ts, row.fromMe); err != nil {
+			t.Fatal(err)
+		}
+	}
+	p := &outboundPolicy{
+		allowlist:   parseAllowlist("+966597532622"),
+		replyWindow: 14 * 24 * time.Hour,
+		lastInbound: lastInboundFromStore(ms),
+		now:         time.Now,
+	}
+	client := newTestClient(&mockLIDStore{})
+	cases := map[string]bool{
+		"966500000001":                true, // messaged us 2h ago
+		"966500000001@s.whatsapp.net": true,
+		"966500000002":                false, // outside window
+		"966500000003":                false, // no inbound message
+		"15550001111":                 false, // stranger
+		"966597532622":                true,  // allow-listed (owner)
+		"55554444@lid":                true,  // LID chat that messaged us
+	}
+	for r, want := range cases {
+		if got := p.recipientAllowed(client, r); got != want {
+			t.Errorf("recipientAllowed(%q) = %v, want %v", r, got, want)
+		}
+	}
+}
+
+func TestReplyWindowEnvParsing(t *testing.T) {
+	t.Setenv(replyWindowEnv, "336")
+	if got := loadOutboundPolicy().replyWindow; got != 336*time.Hour {
+		t.Fatalf("replyWindow = %v", got)
+	}
+	t.Setenv(replyWindowEnv, "-1")
+	if got := loadOutboundPolicy().replyWindow; got != 0 {
+		t.Fatalf("negative window must be ignored, got %v", got)
+	}
+}

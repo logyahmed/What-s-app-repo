@@ -17,6 +17,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -39,14 +40,22 @@ const (
 	sendAllowlistEnv        = "WHATSAPP_SEND_ALLOWLIST"
 	sendRateLimitEnv        = "WHATSAPP_SEND_RATE_LIMIT"
 	outboundAuditEnabledEnv = "WHATSAPP_OUTBOUND_AUDIT"
+	replyWindowEnv          = "WHATSAPP_REPLY_WINDOW_HOURS"
 )
 
 // outboundPolicy is built once per REST mux from the environment.
 type outboundPolicy struct {
 	readOnly  bool
 	allowlist map[string]struct{} // normalized keys; nil/empty = everyone
-	rateLimit int                 // 0 = unlimited
-	audit     bool
+	// replyWindow > 0 restricts sends to chats that messaged us within the
+	// window (plus anything on the allowlist). Lets an auto-reply agent talk
+	// to new customers without being able to cold-message arbitrary numbers.
+	replyWindow time.Duration
+	// lastInbound returns the newest non-self message time for any of the
+	// given chat JIDs. Wired to the MessageStore in newRESTMux.
+	lastInbound func(chatJIDs []string) (time.Time, bool)
+	rateLimit   int // 0 = unlimited
+	audit       bool
 
 	mu     sync.Mutex
 	recent []time.Time
@@ -61,6 +70,13 @@ func loadOutboundPolicy() *outboundPolicy {
 		audit:     getEnvBool(outboundAuditEnabledEnv, true),
 		now:       time.Now,
 	}
+	if raw := strings.TrimSpace(os.Getenv(replyWindowEnv)); raw != "" {
+		if h, err := strconv.ParseFloat(raw, 64); err == nil && h >= 0 {
+			p.replyWindow = time.Duration(h * float64(time.Hour))
+		} else {
+			fmt.Printf("Warning: invalid %s=%q, ignoring\n", replyWindowEnv, raw)
+		}
+	}
 	if raw := strings.TrimSpace(os.Getenv(sendRateLimitEnv)); raw != "" {
 		if n, err := strconv.Atoi(raw); err == nil && n >= 0 {
 			p.rateLimit = n
@@ -73,8 +89,13 @@ func loadOutboundPolicy() *outboundPolicy {
 
 func (p *outboundPolicy) describe() string {
 	allow := "any recipient"
-	if len(p.allowlist) > 0 {
+	switch {
+	case len(p.allowlist) > 0 && p.replyWindow > 0:
+		allow = fmt.Sprintf("%d allow-listed + chats that messaged us in the last %s", len(p.allowlist), p.replyWindow)
+	case len(p.allowlist) > 0:
 		allow = fmt.Sprintf("%d allow-listed recipient(s)", len(p.allowlist))
+	case p.replyWindow > 0:
+		allow = fmt.Sprintf("only chats that messaged us in the last %s", p.replyWindow)
 	}
 	rate := "unlimited"
 	if p.rateLimit > 0 {
@@ -139,26 +160,45 @@ func digitsOnly(s string) string {
 
 // recipientAllowed checks the raw recipient and, for LID addresses, the
 // phone number WhatsApp maps it to, so allow-listing "+9665..." also covers
-// that contact's "...@lid" chat JID.
+// that contact's "...@lid" chat JID. With a reply window, a recipient that
+// sent us a message recently is allowed too.
 func (p *outboundPolicy) recipientAllowed(client *whatsmeow.Client, recipient string) bool {
-	if len(p.allowlist) == 0 {
+	if len(p.allowlist) == 0 && p.replyWindow <= 0 {
 		return true
 	}
 	key := normalizeRecipientKey(recipient)
 	if key == "" {
 		return false
 	}
-	if _, ok := p.allowlist[key]; ok {
-		return true
-	}
+	candidates := []string{key}
 	if strings.HasSuffix(key, "@"+types.HiddenUserServer) && client != nil && client.Store != nil && client.Store.LIDs != nil {
-		lid, err := types.ParseJID(key)
-		if err == nil {
+		if lid, err := types.ParseJID(key); err == nil {
 			if pn, err := client.Store.LIDs.GetPNForLID(context.Background(), lid); err == nil && !pn.IsEmpty() {
-				if _, ok := p.allowlist[normalizeRecipientKey(pn.String())]; ok {
-					return true
-				}
+				candidates = append(candidates, normalizeRecipientKey(pn.String()))
 			}
+		}
+	} else if !strings.Contains(key, "@") && client != nil && client.Store != nil && client.Store.LIDs != nil {
+		pn := types.JID{User: key, Server: types.DefaultUserServer}
+		if lid, err := client.Store.LIDs.GetLIDForPN(context.Background(), pn); err == nil && !lid.IsEmpty() {
+			candidates = append(candidates, normalizeRecipientKey(lid.String()))
+		}
+	}
+	for _, c := range candidates {
+		if _, ok := p.allowlist[c]; ok {
+			return true
+		}
+	}
+	if p.replyWindow > 0 && p.lastInbound != nil {
+		var jids []string
+		for _, c := range candidates {
+			if strings.Contains(c, "@") {
+				jids = append(jids, c)
+			} else {
+				jids = append(jids, c+"@"+types.DefaultUserServer)
+			}
+		}
+		if last, ok := p.lastInbound(jids); ok && p.now().Sub(last) <= p.replyWindow {
+			return true
 		}
 	}
 	return false
@@ -202,7 +242,7 @@ func (p *outboundPolicy) check(client *whatsmeow.Client, endpoint, recipient str
 	case p.readOnly:
 		d = outboundDecision{false, http.StatusForbidden, "bridge is in read-only mode (" + readOnlyEnv + "=true)"}
 	case !p.recipientAllowed(client, recipient):
-		d = outboundDecision{false, http.StatusForbidden, "recipient is not in " + sendAllowlistEnv}
+		d = outboundDecision{false, http.StatusForbidden, "recipient is not in " + sendAllowlistEnv + " and has not messaged us within " + replyWindowEnv}
 	case countsTowardRate && !p.takeRateSlot():
 		d = outboundDecision{false, http.StatusTooManyRequests, fmt.Sprintf("rate limit exceeded (%d per minute, %s)", p.rateLimit, sendRateLimitEnv)}
 	}
@@ -261,4 +301,29 @@ func rejectOutbound(w http.ResponseWriter, d outboundDecision) {
 		"message": "Blocked by bridge security policy: " + d.Reason,
 		"error":   d.Reason,
 	})
+}
+
+// lastInboundFromStore builds the lastInbound lookup over the bridge's own
+// message DB (non-self messages only).
+func lastInboundFromStore(ms *MessageStore) func([]string) (time.Time, bool) {
+	return func(chatJIDs []string) (time.Time, bool) {
+		if ms == nil || ms.db == nil || len(chatJIDs) == 0 {
+			return time.Time{}, false
+		}
+		var newest time.Time
+		found := false
+		for _, jid := range chatJIDs {
+			var ts sql.NullTime
+			err := ms.db.QueryRow(
+				// Selecting the column itself (not MAX()) keeps its TIMESTAMP
+				// decltype so the sqlite driver returns a time.Time.
+				"SELECT timestamp FROM messages WHERE chat_jid = ? AND is_from_me = 0 ORDER BY timestamp DESC LIMIT 1",
+				jid,
+			).Scan(&ts)
+			if err == nil && ts.Valid && ts.Time.After(newest) {
+				newest, found = ts.Time, true
+			}
+		}
+		return newest, found
+	}
 }

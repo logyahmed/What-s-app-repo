@@ -15,6 +15,7 @@ hold **even when the model itself is fooled**.
 | Layer | Change | Default |
 |---|---|---|
 | Go bridge | `WHATSAPP_SEND_ALLOWLIST` — only listed numbers/groups can be messaged, reacted to, or sent typing signals. LID chat IDs are mapped back to phone numbers. | empty (anyone) — **set it** |
+| Go bridge | `WHATSAPP_REPLY_WINDOW_HOURS` — also allow chats that messaged us within N hours, so an auto-reply agent can answer new customers but never cold-message strangers | `0` (off) |
 | Go bridge | `WHATSAPP_READ_ONLY` — blocks send, react, typing and read receipts | `false` |
 | Go bridge | `WHATSAPP_SEND_RATE_LIMIT` — max sends+reactions per minute | `10` |
 | Go bridge | Audit log `store/outbound-audit.log` (0600) of every allowed/blocked outbound action, without message text | on |
@@ -56,3 +57,6 @@ WHATSAPP_READ_ONLY=true
 - يبعت أكتر من 10 رسايل في الدقيقة
 - كل محاولة إرسال (مسموحة أو مرفوضة) بتتسجل في `store/outbound-audit.log` من غير نص الرسالة
 - الـwebhook بقى مقفول افتراضياً
+
+## Sadan auto-reply agent
+See [sadan-agent/README.md](sadan-agent/README.md): local Ollama agent that answers customers in Riyadh dialect, hands off to the owner, and sends reminders. It relies on the reply window + allowlist above.

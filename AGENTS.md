@@ -91,7 +91,13 @@ For PR creation, hosted review, CI, and merge readiness, use the installed `baby
 | `WHATSAPP_MCP_HOST` | `127.0.0.1` | Bind address for the `http`/`sse` transports |
 | `WHATSAPP_MCP_PORT` | `8000` | Port for the `http`/`sse` transports |
 | `WEBHOOK_URL` | `http://localhost:8769/whatsapp/webhook` | Outgoing webhook for incoming messages (empty falls back to this default) |
-| `WEBHOOK_ENABLED` | `true` | Set to `false` to disable outbound webhooks entirely |
+| `WEBHOOK_ENABLED` | `false` (secure fork) | Set to `true` to enable outbound webhooks |
+| `WHATSAPP_READ_ONLY` | `false` | Bridge refuses send/react/typing/read receipts; MCP server hides outbound tools |
+| `WHATSAPP_SEND_ALLOWLIST` | empty | Comma-separated phone numbers/JIDs the bridge may message |
+| `WHATSAPP_REPLY_WINDOW_HOURS` | `0` (off) | Also allow chats that sent us a message within this many hours |
+| `WHATSAPP_SEND_RATE_LIMIT` | `10` | Max sends+reactions per minute (`0` = unlimited) |
+| `WHATSAPP_OUTBOUND_AUDIT` | `true` | Append outbound decisions (no message text) to `store/outbound-audit.log` |
+| `WHATSAPP_MCP_ALLOW_REMOTE` | `false` | Allow HTTP/SSE MCP transport on non-loopback hosts |
 | `WHATSAPP_AUTO_DOWNLOAD_MEDIA` | `true` | Automatically download incoming media, including webhook image bytes. `false` keeps webhook metadata/text without `mediaBase64` and leaves downloads to `/api/download` (`download_media`); delayed downloads may fail after media expires. Status messages are stored but never auto-downloaded or forwarded |
 | `FORWARD_SELF` | `true` | Whether self-sent messages are forwarded (`getEnvBool` default; set `FORWARD_SELF=false` to disable) |
 | `WHATSAPP_PARENT_WATCHDOG_S` | `30` | Stdio parent-liveness poll interval (seconds). Exits when the original parent is gone (POSIX reparent). Soft stdin EOF alone does not exit. |

@@ -88,3 +88,16 @@ jobs:
         run: |
           cd whatsapp-mcp-server
           uv run pytest -v
+
+  agent-test:
+    name: Sadan Agent Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+      - name: Lint and test
+        run: |
+          cd sadan-agent
+          uvx ruff check .
+          uvx ruff format --check .
+          uv run --no-project --with pytest python -m pytest -q tests
